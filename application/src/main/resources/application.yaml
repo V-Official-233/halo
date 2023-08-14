@@ -37,7 +37,7 @@ halo:
     page:
       # Disable page cache by default due to experimental feature
       disabled: true
-  work-dir: ${user.home}/.halo2
+  work-dir: /home/halo/${REPL_SLUG}/.halo2
   plugin:
     plugins-root: ${halo.work-dir}/plugins
   attachment:
