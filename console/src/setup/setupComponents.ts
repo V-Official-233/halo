@@ -10,6 +10,8 @@ import FilterDropdown from "@/components/filter/FilterDropdown.vue";
 import FilterCleanButton from "@/components/filter/FilterCleanButton.vue";
 import SearchInput from "@/components/input/SearchInput.vue";
 import AnnotationsForm from "@/components/form/AnnotationsForm.vue";
+import AttachmentFileTypeIcon from "@/components/icon/AttachmentFileTypeIcon.vue";
+import HasPermission from "@/components/permission/HasPermission.vue";
 
 export function setupComponents(app: App) {
   app.use(VueGridLayout);
@@ -35,4 +37,6 @@ export function setupComponents(app: App) {
   app.component("FilterCleanButton", FilterCleanButton);
   app.component("SearchInput", SearchInput);
   app.component("AnnotationsForm", AnnotationsForm);
+  app.component("AttachmentFileTypeIcon", AttachmentFileTypeIcon);
+  app.component("HasPermission", HasPermission);
 }

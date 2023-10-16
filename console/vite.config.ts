@@ -11,7 +11,11 @@ import VueI18nPlugin from "@intlify/unplugin-vue-i18n/vite";
 import GzipPlugin from "rollup-plugin-gzip";
 
 export const sharedPlugins = [
-  Vue(),
+  Vue({
+    script: {
+      defineModel: true,
+    },
+  }),
   VueJsx(),
   GzipPlugin() as Plugin,
   Icons({
@@ -53,6 +57,9 @@ export default ({ mode }: { mode: string }) => {
     },
     server: {
       port: 3000,
+      fs: {
+        strict: isProduction ? true : false,
+      },
     },
     build: {
       outDir: fileURLToPath(

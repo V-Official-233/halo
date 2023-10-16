@@ -34,10 +34,16 @@ import {
   ExtensionCodeBlock,
   ExtensionFontSize,
   ExtensionColor,
+  ExtensionIndent,
   lowlight,
   type AnyExtension,
   Editor,
   ToolboxItem,
+  ExtensionDraggable,
+  ExtensionColumns,
+  ExtensionColumn,
+  ExtensionNodeSelected,
+  ExtensionTrailingNode,
 } from "@halo-dev/richtext-editor";
 import {
   IconCalendar,
@@ -77,7 +83,9 @@ import { useFetchAttachmentPolicy } from "@/modules/contents/attachments/composa
 import { useI18n } from "vue-i18n";
 import { i18n } from "@/locales";
 import { OverlayScrollbarsComponent } from "overlayscrollbars-vue";
-import { usePluginModuleStore, type PluginModule } from "@/stores/plugin";
+import { usePluginModuleStore } from "@/stores/plugin";
+import type { PluginModule } from "@halo-dev/console-shared";
+import { useDebounceFn } from "@vueuse/core";
 
 const { t } = useI18n();
 
@@ -141,6 +149,14 @@ onMounted(() => {
     extensionsFromPlugins.push(...extensions);
   });
 
+  // debounce OnUpdate
+  const debounceOnUpdate = useDebounceFn(() => {
+    const html = editor.value?.getHTML() + "";
+    emit("update:raw", html);
+    emit("update:content", html);
+    emit("update", html);
+  }, 250);
+
   editor.value = new Editor({
     content: props.raw,
     extensions: [
@@ -149,7 +165,11 @@ onMounted(() => {
       ExtensionBulletList,
       ExtensionCode,
       ExtensionDocument,
-      ExtensionDropcursor,
+      ExtensionDropcursor.configure({
+        width: 2,
+        class: "dropcursor",
+        color: "skyblue",
+      }),
       ExtensionGapcursor,
       ExtensionHardBreak,
       ExtensionHeading,
@@ -196,6 +216,7 @@ onMounted(() => {
       ExtensionCharacterCount,
       ExtensionFontSize,
       ExtensionColor,
+      ExtensionIndent,
       ...extensionsFromPlugins,
       Extension.create({
         addGlobalAttributes() {
@@ -233,12 +254,15 @@ onMounted(() => {
           };
         },
       }),
+      ExtensionDraggable,
+      ExtensionColumns,
+      ExtensionColumn,
+      ExtensionNodeSelected,
+      ExtensionTrailingNode,
     ],
     autofocus: "start",
     onUpdate: () => {
-      emit("update:raw", editor.value?.getHTML() + "");
-      emit("update:content", editor.value?.getHTML() + "");
-      emit("update", editor.value?.getHTML() + "");
+      debounceOnUpdate();
       nextTick(() => {
         handleGenerateTableOfContent();
       });
@@ -471,19 +495,12 @@ const currentLocale = i18n.global.locale.value as
     v-model:visible="attachmentSelectorModal"
     @select="onAttachmentSelect"
   />
-  <RichTextEditor
-    v-if="editor"
-    :editor="editor"
-    :locale="currentLocale"
-    :content-styles="{
-      width: 'calc(100% - 18rem)',
-    }"
-  >
+  <RichTextEditor v-if="editor" :editor="editor" :locale="currentLocale">
     <template #extra>
       <OverlayScrollbarsComponent
         element="div"
         :options="{ scrollbars: { autoHide: 'scroll' } }"
-        class="h-full w-72 border-l bg-white"
+        class="h-full border-l bg-white"
         defer
       >
         <VTabs v-model:active-id="extraActiveId" type="outline">

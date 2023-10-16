@@ -15,9 +15,6 @@ import {
   VSpace,
   VEmpty,
   IconFolder,
-  VStatusDot,
-  VEntity,
-  VEntityField,
   VLoading,
   Toast,
   VDropdown,
@@ -30,21 +27,20 @@ import AttachmentPoliciesModal from "./components/AttachmentPoliciesModal.vue";
 import AttachmentGroupList from "./components/AttachmentGroupList.vue";
 import { computed, onMounted, ref, watch } from "vue";
 import type { Attachment, Group } from "@halo-dev/api-client";
-import { formatDatetime } from "@/utils/date";
-import prettyBytes from "pretty-bytes";
 import { useFetchAttachmentPolicy } from "./composables/use-attachment-policy";
 import { useAttachmentControl } from "./composables/use-attachment";
-import AttachmentFileTypeIcon from "./components/AttachmentFileTypeIcon.vue";
 import { apiClient } from "@/utils/api-client";
 import cloneDeep from "lodash.clonedeep";
 import { isImage } from "@/utils/image";
 import { useRouteQuery } from "@vueuse/router";
 import { useFetchAttachmentGroup } from "./composables/use-attachment-group";
-import { usePermission } from "@/utils/permission";
 import { useI18n } from "vue-i18n";
+import { useLocalStorage } from "@vueuse/core";
 import UserFilterDropdown from "@/components/filter/UserFilterDropdown.vue";
+import { provide } from "vue";
+import type { Ref } from "vue";
+import AttachmentListItem from "./components/AttachmentListItem.vue";
 
-const { currentUserHasPermission } = usePermission();
 const { t } = useI18n();
 
 const policyVisible = ref(false);
@@ -101,7 +97,6 @@ const {
   handleFetchAttachments,
   handleSelectNext,
   handleSelectPrevious,
-  handleDelete,
   handleDeleteInBatch,
   handleCheckAll,
   handleSelect,
@@ -120,6 +115,8 @@ const {
   page: page,
   size: size,
 });
+
+provide<Ref<Set<Attachment>>>("selectedAttachments", selectedAttachments);
 
 const handleMove = async (group: Group) => {
   try {
@@ -177,11 +174,6 @@ const onUploadModalClose = () => {
   handleFetchAttachments();
 };
 
-const getPolicyName = (name: string | undefined) => {
-  const policy = policies.value?.find((p) => p.metadata.name === name);
-  return policy?.spec.displayName;
-};
-
 // View type
 const viewTypes = [
   {
@@ -196,7 +188,7 @@ const viewTypes = [
   },
 ];
 
-const viewType = useRouteQuery<string>("view", "list");
+const viewType = useLocalStorage("attachment-view-type", "list");
 
 // Route query action
 const routeQueryAction = useRouteQuery<string | undefined>("action");
@@ -293,11 +285,11 @@ onMounted(() => {
           <template #header>
             <div class="block w-full bg-gray-50 px-4 py-3">
               <div
-                class="relative flex flex-col items-start sm:flex-row sm:items-center"
+                class="relative flex flex-col flex-wrap items-start gap-4 sm:flex-row sm:items-center"
               >
                 <div
                   v-permission="['system:attachments:manage']"
-                  class="mr-4 hidden items-center sm:flex"
+                  class="hidden items-center sm:flex"
                 >
                   <input
                     v-model="checkedAll"
@@ -336,95 +328,91 @@ onMounted(() => {
                     </VDropdown>
                   </VSpace>
                 </div>
-                <div class="mt-4 flex sm:mt-0">
-                  <VSpace spacing="lg">
-                    <FilterCleanButton
-                      v-if="hasFilters"
-                      @click="handleClearFilters"
-                    />
-                    <FilterDropdown
-                      v-model="selectedPolicy"
-                      :label="
-                        $t('core.attachment.filters.storage_policy.label')
-                      "
-                      :items="[
-                        {
-                          label: t('core.common.filters.item_labels.all'),
-                        },
-                        ...(policies?.map((policy) => {
-                          return {
-                            label: policy.spec.displayName,
-                            value: policy.metadata.name,
-                          };
-                        }) || []),
-                      ]"
-                    />
+                <VSpace spacing="lg" class="flex-wrap">
+                  <FilterCleanButton
+                    v-if="hasFilters"
+                    @click="handleClearFilters"
+                  />
+                  <FilterDropdown
+                    v-model="selectedPolicy"
+                    :label="$t('core.attachment.filters.storage_policy.label')"
+                    :items="[
+                      {
+                        label: t('core.common.filters.item_labels.all'),
+                      },
+                      ...(policies?.map((policy) => {
+                        return {
+                          label: policy.spec.displayName,
+                          value: policy.metadata.name,
+                        };
+                      }) || []),
+                    ]"
+                  />
+                  <HasPermission :permissions="['system:users:view']">
                     <UserFilterDropdown
                       v-model="selectedUser"
                       :label="$t('core.attachment.filters.owner.label')"
                     />
-                    <FilterDropdown
-                      v-model="selectedSort"
-                      :label="$t('core.common.filters.labels.sort')"
-                      :items="[
-                        {
-                          label: t('core.common.filters.item_labels.default'),
-                        },
-                        {
-                          label: t(
-                            'core.attachment.filters.sort.items.create_time_desc'
-                          ),
-                          value: 'creationTimestamp,desc',
-                        },
-                        {
-                          label: t(
-                            'core.attachment.filters.sort.items.create_time_asc'
-                          ),
-                          value: 'creationTimestamp,asc',
-                        },
-                        {
-                          label: t(
-                            'core.attachment.filters.sort.items.size_desc'
-                          ),
-                          value: 'size,desc',
-                        },
-                        {
-                          label: t(
-                            'core.attachment.filters.sort.items.size_asc'
-                          ),
-                          value: 'size,asc',
-                        },
-                      ]"
-                    />
-                    <div class="flex flex-row gap-2">
-                      <div
-                        v-for="(item, index) in viewTypes"
-                        :key="index"
-                        v-tooltip="`${item.tooltip}`"
-                        :class="{
-                          'bg-gray-200 font-bold text-black':
-                            viewType === item.name,
-                        }"
-                        class="cursor-pointer rounded p-1 hover:bg-gray-200"
-                        @click="viewType = item.name"
-                      >
-                        <component :is="item.icon" class="h-4 w-4" />
-                      </div>
+                  </HasPermission>
+                  <FilterDropdown
+                    v-model="selectedSort"
+                    :label="$t('core.common.filters.labels.sort')"
+                    :items="[
+                      {
+                        label: t('core.common.filters.item_labels.default'),
+                      },
+                      {
+                        label: t(
+                          'core.attachment.filters.sort.items.create_time_desc'
+                        ),
+                        value: 'creationTimestamp,desc',
+                      },
+                      {
+                        label: t(
+                          'core.attachment.filters.sort.items.create_time_asc'
+                        ),
+                        value: 'creationTimestamp,asc',
+                      },
+                      {
+                        label: t(
+                          'core.attachment.filters.sort.items.size_desc'
+                        ),
+                        value: 'size,desc',
+                      },
+                      {
+                        label: t('core.attachment.filters.sort.items.size_asc'),
+                        value: 'size,asc',
+                      },
+                    ]"
+                  />
+                  <div class="flex flex-row gap-2">
+                    <div
+                      v-for="(item, index) in viewTypes"
+                      :key="index"
+                      v-tooltip="`${item.tooltip}`"
+                      :class="{
+                        'bg-gray-200 font-bold text-black':
+                          viewType === item.name,
+                      }"
+                      class="cursor-pointer rounded p-1 hover:bg-gray-200"
+                      @click="viewType = item.name"
+                    >
+                      <component :is="item.icon" class="h-4 w-4" />
                     </div>
-                    <div class="flex flex-row gap-2">
-                      <div
-                        class="group cursor-pointer rounded p-1 hover:bg-gray-200"
-                        @click="handleFetchAttachments()"
-                      >
-                        <IconRefreshLine
-                          v-tooltip="$t('core.common.buttons.refresh')"
-                          :class="{ 'animate-spin text-gray-900': isFetching }"
-                          class="h-4 w-4 text-gray-600 group-hover:text-gray-900"
-                        />
-                      </div>
+                  </div>
+                  <div class="flex flex-row gap-2">
+                    <div
+                      class="group cursor-pointer rounded p-1 hover:bg-gray-200"
+                      @click="handleFetchAttachments()"
+                    >
+                      <IconRefreshLine
+                        v-tooltip="$t('core.common.buttons.refresh')"
+                        :class="{ 'animate-spin text-gray-900': isFetching }"
+                        class="h-4 w-4 text-gray-600 group-hover:text-gray-900"
+                      />
                     </div>
-                  </VSpace>
-                </div>
+                  </div>
+                </VSpace>
               </div>
             </div>
           </template>
@@ -472,8 +460,8 @@ onMounted(() => {
                 role="list"
               >
                 <VCard
-                  v-for="(attachment, index) in attachments"
-                  :key="index"
+                  v-for="attachment in attachments"
+                  :key="attachment.metadata.name"
                   :body-class="['!p-0']"
                   :class="{
                     'ring-1 ring-primary': isChecked(attachment),
@@ -556,113 +544,16 @@ onMounted(() => {
                 class="box-border h-full w-full divide-y divide-gray-100"
                 role="list"
               >
-                <li v-for="(attachment, index) in attachments" :key="index">
-                  <VEntity :is-selected="isChecked(attachment)">
-                    <template
-                      v-if="
-                        currentUserHasPermission(['system:attachments:manage'])
-                      "
-                      #checkbox
-                    >
-                      <input
-                        :checked="selectedAttachments.has(attachment)"
-                        class="h-4 w-4 rounded border-gray-300 text-indigo-600"
-                        type="checkbox"
-                        @click="handleSelect(attachment)"
-                      />
-                    </template>
-                    <template #start>
-                      <VEntityField>
-                        <template #description>
-                          <div
-                            class="h-10 w-10 rounded border bg-white p-1 hover:shadow-sm"
-                          >
-                            <AttachmentFileTypeIcon
-                              :display-ext="false"
-                              :file-name="attachment.spec.displayName"
-                              :width="8"
-                              :height="8"
-                            />
-                          </div>
-                        </template>
-                      </VEntityField>
-                      <VEntityField
-                        :title="attachment.spec.displayName"
-                        @click="handleClickItem(attachment)"
-                      >
-                        <template #description>
-                          <VSpace>
-                            <span class="text-xs text-gray-500">
-                              {{ attachment.spec.mediaType }}
-                            </span>
-                            <span class="text-xs text-gray-500">
-                              {{ prettyBytes(attachment.spec.size || 0) }}
-                            </span>
-                          </VSpace>
-                        </template>
-                      </VEntityField>
-                    </template>
-                    <template #end>
-                      <VEntityField
-                        :description="getPolicyName(attachment.spec.policyName)"
-                      />
-                      <VEntityField>
-                        <template #description>
-                          <RouterLink
-                            :to="{
-                              name: 'UserDetail',
-                              params: {
-                                name: attachment.spec.ownerName,
-                              },
-                            }"
-                            class="text-xs text-gray-500"
-                          >
-                            {{ attachment.spec.ownerName }}
-                          </RouterLink>
-                        </template>
-                      </VEntityField>
-                      <VEntityField
-                        v-if="attachment.metadata.deletionTimestamp"
-                      >
-                        <template #description>
-                          <VStatusDot
-                            v-tooltip="$t('core.common.status.deleting')"
-                            state="warning"
-                            animate
-                          />
-                        </template>
-                      </VEntityField>
-                      <VEntityField>
-                        <template #description>
-                          <span
-                            class="truncate text-xs tabular-nums text-gray-500"
-                          >
-                            {{
-                              formatDatetime(
-                                attachment.metadata.creationTimestamp
-                              )
-                            }}
-                          </span>
-                        </template>
-                      </VEntityField>
-                    </template>
-                    <template #dropdownItems>
-                      <VDropdownItem @click="handleClickItem(attachment)">
-                        {{ $t("core.common.buttons.detail") }}
-                      </VDropdownItem>
-                      <VDropdownItem
-                        v-if="
-                          currentUserHasPermission([
-                            'system:attachments:manage',
-                          ])
-                        "
-                        type="danger"
-                        @click="handleDelete(attachment)"
-                      >
-                        {{ $t("core.common.buttons.delete") }}
-                      </VDropdownItem>
-                    </template>
-                  </VEntity>
+                <li
+                  v-for="attachment in attachments"
+                  :key="attachment.metadata.name"
+                >
+                  <AttachmentListItem
+                    :attachment="attachment"
+                    :is-selected="isChecked(attachment)"
+                    @select="handleSelect"
+                    @open-detail="handleClickItem"
+                  />
                 </li>
               </ul>
             </Transition>

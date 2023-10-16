@@ -37,9 +37,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.stubbing.Answer;
+import org.pf4j.PluginDescriptor;
 import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
-import org.pf4j.RuntimeMode;
 import org.skyscreamer.jsonassert.JSONAssert;
 import org.springframework.context.ApplicationEventPublisher;
 import run.halo.app.core.extension.Plugin;
@@ -50,6 +50,7 @@ import run.halo.app.extension.controller.Reconciler;
 import run.halo.app.infra.utils.FileUtils;
 import run.halo.app.infra.utils.JsonUtils;
 import run.halo.app.plugin.HaloPluginManager;
+import run.halo.app.plugin.HaloPluginWrapper;
 import run.halo.app.plugin.PluginConst;
 import run.halo.app.plugin.PluginStartingError;
 
@@ -69,7 +70,7 @@ class PluginReconcilerTest {
     ExtensionClient extensionClient;
 
     @Mock
-    PluginWrapper pluginWrapper;
+    HaloPluginWrapper pluginWrapper;
 
     @Mock
     ApplicationEventPublisher eventPublisher;
@@ -91,6 +92,10 @@ class PluginReconcilerTest {
     void reconcileOkWhenPluginManagerStartSuccessfully() {
         Plugin plugin = need2ReconcileForStartupState();
         when(pluginWrapper.getPluginState()).thenReturn(PluginState.STOPPED);
+        var pluginDescriptor = mock(PluginDescriptor.class);
+        when(pluginWrapper.getDescriptor()).thenReturn(pluginDescriptor);
+        when(pluginDescriptor.getVersion()).thenReturn("1.0.0");
+
         when(extensionClient.fetch(eq(Plugin.class), eq("apples"))).thenReturn(Optional.of(plugin));
         when(haloPluginManager.startPlugin(any())).thenAnswer((Answer<PluginState>) invocation -> {
             // mock plugin real state is started
@@ -119,6 +124,7 @@ class PluginReconcilerTest {
 
         // mock plugin real state is started
         when(pluginWrapper.getPluginState()).thenReturn(PluginState.STOPPED);
+        var pluginDescriptor = mock(PluginDescriptor.class);
 
         PluginStartingError pluginStartingError =
             PluginStartingError.of("apples", "error message", "dev message");
@@ -194,7 +200,7 @@ class PluginReconcilerTest {
         when(pluginWrapper.getPluginState()).thenReturn(PluginState.STARTED);
 
         ArgumentCaptor<Plugin> pluginCaptor = doReconcileWithoutRequeue();
-        verify(extensionClient, times(3)).update(any(Plugin.class));
+        verify(extensionClient, times(4)).update(any(Plugin.class));
 
         Plugin updateArgs = pluginCaptor.getValue();
         assertThat(updateArgs).isNotNull();
@@ -227,14 +233,14 @@ class PluginReconcilerTest {
     }
 
     @Test
-    void createInitialReverseProxyWhenNotExistAndLogoIsPath() throws JSONException {
+    void recreateDefaultReverseProxyWhenNotExistAndLogoIsPath() throws JSONException {
         Plugin plugin = need2ReconcileForStopState();
         String reverseProxyName = initialReverseProxyName(plugin.getMetadata().getName());
         when(extensionClient.fetch(eq(ReverseProxy.class), eq(reverseProxyName)))
             .thenReturn(Optional.empty());
 
         plugin.getSpec().setLogo("/logo.png");
-        pluginReconciler.createInitialReverseProxyIfNotPresent(plugin);
+        pluginReconciler.recreateDefaultReverseProxy(plugin);
         ArgumentCaptor<ReverseProxy> captor = ArgumentCaptor.forClass(ReverseProxy.class);
         verify(extensionClient, times(1)).create(captor.capture());
         ReverseProxy value = captor.getValue();
@@ -263,14 +269,14 @@ class PluginReconcilerTest {
     }
 
     @Test
-    void createInitialReverseProxyWhenNotExistAndLogoIsAbsolute() {
+    void recreateDefaultReverseProxyWhenNotExistAndLogoIsAbsolute() {
         Plugin plugin = need2ReconcileForStopState();
         String reverseProxyName = initialReverseProxyName(plugin.getMetadata().getName());
         when(extensionClient.fetch(eq(ReverseProxy.class), eq(reverseProxyName)))
             .thenReturn(Optional.empty());
 
         plugin.getSpec().setLogo("http://example.com/logo");
-        pluginReconciler.createInitialReverseProxyIfNotPresent(plugin);
+        pluginReconciler.recreateDefaultReverseProxy(plugin);
         ArgumentCaptor<ReverseProxy> captor = ArgumentCaptor.forClass(ReverseProxy.class);
         verify(extensionClient, times(1)).create(captor.capture());
         ReverseProxy value = captor.getValue();
@@ -278,7 +284,7 @@ class PluginReconcilerTest {
     }
 
     @Test
-    void createInitialReverseProxyWhenExist() {
+    void recreateDefaultReverseProxyWhenExist() {
         Plugin plugin = need2ReconcileForStopState();
         plugin.getSpec().setLogo("/logo.png");
 
@@ -290,14 +296,9 @@ class PluginReconcilerTest {
 
         when(extensionClient.fetch(eq(ReverseProxy.class), eq(reverseProxyName)))
             .thenReturn(Optional.of(reverseProxy));
-        when(pluginWrapper.getRuntimeMode()).thenReturn(RuntimeMode.DEPLOYMENT);
 
-        pluginReconciler.createInitialReverseProxyIfNotPresent(plugin);
-        verify(extensionClient, times(0)).update(any());
-
-        when(pluginWrapper.getRuntimeMode()).thenReturn(RuntimeMode.DEVELOPMENT);
-        pluginReconciler.createInitialReverseProxyIfNotPresent(plugin);
-        verify(extensionClient, times(1)).update(any());
+        pluginReconciler.recreateDefaultReverseProxy(plugin);
+        verify(extensionClient).update(any());
     }
 
     @Nested
@@ -309,9 +310,8 @@ class PluginReconcilerTest {
             plugin.setSpec(new Plugin.PluginSpec());
             plugin.getSpec().setLogo("https://example.com/logo.png");
             plugin.getSpec().setVersion("1.0.0");
-            pluginReconciler.generateAccessibleLogoUrl(plugin);
-            assertThat(plugin.statusNonNull().getLogo())
-                .isEqualTo("https://example.com/logo.png");
+            String logo = pluginReconciler.generateAccessibleLogoUrl(plugin);
+            assertThat(logo).isEqualTo("https://example.com/logo.png");
         }
 
         @Test
@@ -320,8 +320,7 @@ class PluginReconcilerTest {
             plugin.setSpec(new Plugin.PluginSpec());
             plugin.getSpec().setLogo("https://example.com/logo.png?hello=world");
             plugin.getSpec().setVersion("1.0.0");
-            pluginReconciler.generateAccessibleLogoUrl(plugin);
-            assertThat(plugin.statusNonNull().getLogo())
+            assertThat(pluginReconciler.generateAccessibleLogoUrl(plugin))
                 .isEqualTo("https://example.com/logo.png?hello=world");
         }
 
@@ -331,8 +330,7 @@ class PluginReconcilerTest {
             plugin.setSpec(new Plugin.PluginSpec());
             plugin.getSpec().setLogo(null);
             plugin.getSpec().setVersion("1.0.0");
-            pluginReconciler.generateAccessibleLogoUrl(plugin);
-            assertThat(plugin.statusNonNull().getLogo()).isNull();
+            assertThat(pluginReconciler.generateAccessibleLogoUrl(plugin)).isNull();
         }
 
         @Test
@@ -341,8 +339,7 @@ class PluginReconcilerTest {
             plugin.setSpec(new Plugin.PluginSpec());
             plugin.getSpec().setLogo("");
             plugin.getSpec().setVersion("1.0.0");
-            pluginReconciler.generateAccessibleLogoUrl(plugin);
-            assertThat(plugin.statusNonNull().getLogo()).isNull();
+            assertThat(pluginReconciler.generateAccessibleLogoUrl(plugin)).isNull();
         }
 
         @Test
@@ -353,8 +350,7 @@ class PluginReconcilerTest {
             plugin.getMetadata().setName("fake-plugin");
             plugin.getSpec().setLogo("/static/logo.jpg");
             plugin.getSpec().setVersion("1.0.0");
-            pluginReconciler.generateAccessibleLogoUrl(plugin);
-            assertThat(plugin.statusNonNull().getLogo())
+            assertThat(pluginReconciler.generateAccessibleLogoUrl(plugin))
                 .isEqualTo("/plugins/fake-plugin/assets/static/logo.jpg?version=1.0.0");
         }
 
@@ -366,8 +362,7 @@ class PluginReconcilerTest {
             plugin.getMetadata().setName("fake-plugin");
             plugin.getSpec().setLogo("data:image/gif;base64,R0lGODfake");
             plugin.getSpec().setVersion("2.0.0");
-            pluginReconciler.generateAccessibleLogoUrl(plugin);
-            assertThat(plugin.statusNonNull().getLogo())
+            assertThat(pluginReconciler.generateAccessibleLogoUrl(plugin))
                 .isEqualTo("data:image/gif;base64,R0lGODfake");
         }
     }
@@ -498,10 +493,13 @@ class PluginReconcilerTest {
         String name = "fake-plugin";
         Plugin plugin = new Plugin();
         Plugin.PluginStatus status = new Plugin.PluginStatus();
+        plugin.setMetadata(new Metadata());
+        plugin.getMetadata().setName(name);
         plugin.setStatus(status);
         when(extensionClient.fetch(eq(Plugin.class), eq(name)))
             .thenReturn(Optional.of(plugin));
         PluginWrapper pluginWrapper = mock(PluginWrapper.class);
+        when(pluginWrapper.getPluginPath()).thenReturn(Paths.get("/path/to/plugin.jar"));
         when(haloPluginManager.getPlugin(eq(name)))
             .thenReturn(pluginWrapper);
         Throwable error = mock(Throwable.class);
@@ -514,6 +512,56 @@ class PluginReconcilerTest {
 
         verify(pluginWrapper).setPluginState(eq(PluginState.FAILED));
         verify(pluginWrapper).setFailedException(eq(error));
+    }
+
+    @Test
+    void shouldReconcileStartState() {
+        Plugin plugin = new Plugin();
+        plugin.setMetadata(new Metadata());
+        plugin.getMetadata().setName("fake-plugin");
+        plugin.setSpec(new Plugin.PluginSpec());
+
+        PluginWrapper pluginWrapper = mock(PluginWrapper.class);
+        when(haloPluginManager.getPlugin(eq("fake-plugin"))).thenReturn(pluginWrapper);
+
+        plugin.getSpec().setEnabled(false);
+        assertThat(pluginReconciler.shouldReconcileStartState(plugin)).isFalse();
+
+        plugin.getSpec().setEnabled(true);
+        plugin.statusNonNull().setPhase(PluginState.RESOLVED);
+        assertThat(pluginReconciler.shouldReconcileStartState(plugin)).isTrue();
+
+        when(pluginWrapper.getPluginState()).thenReturn(PluginState.STOPPED);
+        assertThat(pluginReconciler.shouldReconcileStartState(plugin)).isTrue();
+
+        plugin.statusNonNull().setPhase(PluginState.STARTED);
+        when(pluginWrapper.getPluginState()).thenReturn(PluginState.STARTED);
+        assertThat(pluginReconciler.shouldReconcileStartState(plugin)).isFalse();
+    }
+
+    @Test
+    void shouldReconcileStopState() {
+        Plugin plugin = new Plugin();
+        plugin.setMetadata(new Metadata());
+        plugin.getMetadata().setName("fake-plugin");
+        plugin.setSpec(new Plugin.PluginSpec());
+
+        PluginWrapper pluginWrapper = mock(PluginWrapper.class);
+        when(haloPluginManager.getPlugin(eq("fake-plugin"))).thenReturn(pluginWrapper);
+
+        plugin.getSpec().setEnabled(true);
+        assertThat(pluginReconciler.shouldReconcileStopState(plugin)).isFalse();
+
+        plugin.getSpec().setEnabled(false);
+        plugin.statusNonNull().setPhase(PluginState.RESOLVED);
+        assertThat(pluginReconciler.shouldReconcileStopState(plugin)).isTrue();
+
+        when(pluginWrapper.getPluginState()).thenReturn(PluginState.STOPPED);
+        assertThat(pluginReconciler.shouldReconcileStopState(plugin)).isTrue();
+
+        plugin.statusNonNull().setPhase(PluginState.STOPPED);
+        when(pluginWrapper.getPluginState()).thenReturn(PluginState.STOPPED);
+        assertThat(pluginReconciler.shouldReconcileStopState(plugin)).isFalse();
     }
 
     private ArgumentCaptor<Plugin> doReconcileNeedRequeue() {

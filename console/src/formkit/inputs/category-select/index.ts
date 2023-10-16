@@ -13,6 +13,16 @@ import {
 } from "@formkit/inputs";
 import CategorySelect from "./CategorySelect.vue";
 import { CategorySelectSection } from "./sections";
+import type { FormKitInputs } from "@formkit/inputs";
+
+declare module "@formkit/inputs" {
+  interface FormKitInputProps<Props extends FormKitInputs<Props>> {
+    categorySelect: {
+      type: "categorySelect";
+      value?: string | string[];
+    };
+  }
+}
 
 export const categorySelect: FormKitTypeDefinition = {
   schema: outer(
@@ -34,4 +44,5 @@ export const categorySelect: FormKitTypeDefinition = {
   library: {
     CategorySelect: CategorySelect,
   },
+  schemaMemoKey: "custom-category-select",
 };

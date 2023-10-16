@@ -13,6 +13,16 @@ import {
 } from "@formkit/inputs";
 import TagSelect from "./TagSelect.vue";
 import { TagSelectSection } from "./sections";
+import type { FormKitInputs } from "@formkit/inputs";
+
+declare module "@formkit/inputs" {
+  interface FormKitInputProps<Props extends FormKitInputs<Props>> {
+    tagSelect: {
+      type: "tagSelect";
+      value?: string | string[];
+    };
+  }
+}
 
 export const tagSelect: FormKitTypeDefinition = {
   schema: outer(
@@ -34,4 +44,5 @@ export const tagSelect: FormKitTypeDefinition = {
   library: {
     TagSelect: TagSelect,
   },
+  schemaMemoKey: "custom-tag-select",
 };

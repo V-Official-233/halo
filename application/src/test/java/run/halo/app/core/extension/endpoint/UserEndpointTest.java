@@ -1,5 +1,6 @@
 package run.halo.app.core.extension.endpoint;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anySet;
@@ -123,35 +124,6 @@ class UserEndpointTest {
                 .expectBody()
                 .jsonPath("$.items.length()").isEqualTo(3)
                 .jsonPath("$.total").isEqualTo(3);
-        }
-
-        @Test
-        void shouldFilterUsersWhenKeywordProvided() {
-            var expectUser =
-                createUser("fake-user-2", "expected display name");
-            var unexpectedUser1 =
-                createUser("fake-user-1", "first fake display name");
-            var unexpectedUser2 =
-                createUser("fake-user-3", "second fake display name");
-            var users = List.of(
-                expectUser
-            );
-            var expectResult = new ListResult<>(users);
-            when(client.list(same(User.class), any(), any(), anyInt(), anyInt()))
-                .thenReturn(Mono.just(expectResult));
-            when(roleService.list(anySet())).thenReturn(Flux.empty());
-
-            bindToRouterFunction(endpoint.endpoint())
-                .build()
-                .get().uri("/users?keyword=Expected")
-                .exchange()
-                .expectStatus().isOk();
-
-            verify(client).list(same(User.class), argThat(
-                    predicate -> predicate.test(expectUser)
-                        && !predicate.test(unexpectedUser1)
-                        && !predicate.test(unexpectedUser2)),
-                any(), anyInt(), anyInt());
         }
 
         @Test
@@ -465,6 +437,7 @@ class UserEndpointTest {
                     "rules": []
                 }
                 """, Role.class);
+            when(roleService.listPermissions(eq(Set.of("test-A")))).thenReturn(Flux.just(roleA));
             when(userService.listRoles(eq("fake-user"))).thenReturn(
                 Flux.fromIterable(List.of(roleA)));
             when(roleService.listDependenciesFlux(anySet())).thenReturn(Flux.just(roleA));
@@ -473,25 +446,12 @@ class UserEndpointTest {
                 .exchange()
                 .expectStatus()
                 .isOk()
-                .expectBody()
-                .json("""
-                        {  "roles": [{
-                               "rules": [],
-                               "apiVersion": "v1alpha1",
-                               "kind": "Role",
-                               "metadata": {
-                                   "name": "test-A",
-                                   "annotations": {
-                                       "rbac.authorization.halo.run/ui-permissions":
-                                        "[\\"permission-A\\"]"
-                                   }
-                               }
-                           }],
-                            "uiPermissions": [
-                               "permission-A"
-                            ]
-                        }
-                    """);
+                .expectBody(UserEndpoint.UserPermission.class)
+                .value(userPermission -> {
+                    assertEquals(Set.of(roleA), userPermission.getRoles());
+                    assertEquals(List.of(roleA), userPermission.getPermissions());
+                    assertEquals(Set.of("permission-A"), userPermission.getUiPermissions());
+                });
 
             verify(userService, times(1)).listRoles(eq("fake-user"));
         }

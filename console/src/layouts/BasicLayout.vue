@@ -34,6 +34,7 @@ import {
   useOverlayScrollbars,
   type UseOverlayScrollbarsParams,
 } from "overlayscrollbars-vue";
+import { isMac } from "@/utils/device";
 
 const route = useRoute();
 const router = useRouter();
@@ -69,8 +70,6 @@ const handleLogout = () => {
 
 // Global Search
 const globalSearchVisible = ref(false);
-
-const isMac = /macintosh|mac os x/i.test(navigator.userAgent);
 
 const handleGlobalSearchKeybinding = (e: KeyboardEvent) => {
   const { key, ctrlKey, metaKey } = e;
@@ -302,6 +301,15 @@ onMounted(() => {
                 "
               >
                 {{ $t("core.sidebar.operations.profile.button") }}
+              </VDropdownItem>
+              <VDropdownItem
+                @click="
+                  $router.push({
+                    name: 'UserNotifications',
+                  })
+                "
+              >
+                {{ $t("core.sidebar.operations.notifications.button") }}
               </VDropdownItem>
               <VDropdownItem @click="handleLogout">
                 {{ $t("core.sidebar.operations.logout.button") }}

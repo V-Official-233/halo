@@ -3,17 +3,26 @@ package run.halo.app.core.extension.service.impl;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 
 import com.github.zafarkhaja.semver.Version;
+import com.google.common.hash.Hashing;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.Validate;
 import org.pf4j.PluginWrapper;
+import org.pf4j.RuntimeMode;
 import org.springframework.core.io.Resource;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
@@ -37,6 +46,7 @@ import run.halo.app.plugin.PluginConst;
 import run.halo.app.plugin.PluginProperties;
 import run.halo.app.plugin.PluginUtils;
 import run.halo.app.plugin.YamlPluginFinder;
+import run.halo.app.plugin.resources.BundleResourceUtils;
 
 @Slf4j
 @Component
@@ -124,6 +134,78 @@ public class PluginServiceImpl implements PluginService {
         return updateReloadAnno(name, pluginWrapper.getPluginPath());
     }
 
+    @Override
+    public Flux<DataBuffer> uglifyJsBundle() {
+        var startedPlugins = List.copyOf(pluginManager.getStartedPlugins());
+        String plugins = """
+            this.enabledPluginNames = [%s];
+            """.formatted(startedPlugins.stream()
+            .map(PluginWrapper::getPluginId)
+            .collect(Collectors.joining("','", "'", "'")));
+        return Flux.fromIterable(startedPlugins)
+            .mapNotNull(pluginWrapper -> {
+                var pluginName = pluginWrapper.getPluginId();
+                return BundleResourceUtils.getJsBundleResource(pluginManager, pluginName,
+                    BundleResourceUtils.JS_BUNDLE);
+            })
+            .flatMap(resource -> {
+                try {
+                    // Specifying bufferSize as resource content length is
+                    // to append line breaks at the end of each plugin
+                    return DataBufferUtils.read(resource, DefaultDataBufferFactory.sharedInstance,
+                            (int) resource.contentLength())
+                        .doOnNext(dataBuffer -> {
+                            // add a new line after each plugin bundle to avoid syntax error
+                            dataBuffer.write("\n".getBytes(StandardCharsets.UTF_8));
+                        });
+                } catch (IOException e) {
+                    log.error("Failed to read plugin bundle resource", e);
+                    return Flux.empty();
+                }
+            })
+            .concatWith(Flux.defer(() -> {
+                var dataBuffer = DefaultDataBufferFactory.sharedInstance
+                    .wrap(plugins.getBytes(StandardCharsets.UTF_8));
+                return Flux.just(dataBuffer);
+            }));
+    }
+
+    @Override
+    public Flux<DataBuffer> uglifyCssBundle() {
+        return Flux.fromIterable(pluginManager.getStartedPlugins())
+            .mapNotNull(pluginWrapper -> {
+                String pluginName = pluginWrapper.getPluginId();
+                return BundleResourceUtils.getJsBundleResource(pluginManager, pluginName,
+                    BundleResourceUtils.CSS_BUNDLE);
+            })
+            .flatMap(resource -> {
+                try {
+                    return DataBufferUtils.read(resource, DefaultDataBufferFactory.sharedInstance,
+                        (int) resource.contentLength());
+                } catch (IOException e) {
+                    log.error("Failed to read plugin css bundle resource", e);
+                    return Flux.empty();
+                }
+            });
+    }
+
+    @Override
+    public Mono<String> generateJsBundleVersion() {
+        return Mono.fromSupplier(() -> {
+            if (RuntimeMode.DEVELOPMENT.equals(pluginManager.getRuntimeMode())) {
+                return String.valueOf(System.currentTimeMillis());
+            }
+            var compactVersion = pluginManager.getStartedPlugins()
+                .stream()
+                .sorted(Comparator.comparing(PluginWrapper::getPluginId))
+                .map(pluginWrapper -> pluginWrapper.getPluginId() + ":"
+                    + pluginWrapper.getDescriptor().getVersion()
+                )
+                .collect(Collectors.joining());
+            return Hashing.sha256().hashUnencodedChars(compactVersion).toString();
+        });
+    }
+
     Mono<Plugin> findPluginManifest(Path path) {
         return Mono.fromSupplier(
                 () -> {
@@ -182,7 +264,7 @@ public class PluginServiceImpl implements PluginService {
         if (!VersionUtils.satisfiesRequires(systemVersion, requires)) {
             throw new UnsatisfiedAttributeValueException(String.format(
                 "Plugin requires a minimum system version of [%s], but the current version is "
-                + "[%s].",
+                    + "[%s].",
                 requires, systemVersion),
                 "problemDetail.plugin.version.unsatisfied.requires",
                 new String[] {requires, systemVersion});

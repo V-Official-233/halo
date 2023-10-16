@@ -29,6 +29,12 @@ import run.halo.app.core.extension.content.Reply;
 import run.halo.app.core.extension.content.SinglePage;
 import run.halo.app.core.extension.content.Snapshot;
 import run.halo.app.core.extension.content.Tag;
+import run.halo.app.core.extension.notification.Notification;
+import run.halo.app.core.extension.notification.NotificationTemplate;
+import run.halo.app.core.extension.notification.NotifierDescriptor;
+import run.halo.app.core.extension.notification.Reason;
+import run.halo.app.core.extension.notification.ReasonType;
+import run.halo.app.core.extension.notification.Subscription;
 import run.halo.app.extension.ConfigMap;
 import run.halo.app.extension.SchemeManager;
 import run.halo.app.extension.Secret;
@@ -36,7 +42,7 @@ import run.halo.app.migration.Backup;
 import run.halo.app.plugin.extensionpoint.ExtensionDefinition;
 import run.halo.app.plugin.extensionpoint.ExtensionPointDefinition;
 import run.halo.app.search.extension.SearchEngine;
-import run.halo.app.security.authentication.pat.PersonalAccessToken;
+import run.halo.app.security.PersonalAccessToken;
 
 @Component
 public class SchemeInitializer implements ApplicationListener<ApplicationStartedEvent> {
@@ -54,7 +60,6 @@ public class SchemeInitializer implements ApplicationListener<ApplicationStarted
     @Override
     public void onApplicationEvent(@NonNull ApplicationStartedEvent event) {
         schemeManager.register(Role.class);
-        schemeManager.register(PersonalAccessToken.class);
 
         // plugin.halo.run
         schemeManager.register(Plugin.class);
@@ -90,8 +95,19 @@ public class SchemeInitializer implements ApplicationListener<ApplicationStarted
         schemeManager.register(AuthProvider.class);
         schemeManager.register(UserConnection.class);
 
+        // security.halo.run
+        schemeManager.register(PersonalAccessToken.class);
+
         // migration.halo.run
         schemeManager.register(Backup.class);
+
+        // notification.halo.run
+        schemeManager.register(ReasonType.class);
+        schemeManager.register(Reason.class);
+        schemeManager.register(NotificationTemplate.class);
+        schemeManager.register(Subscription.class);
+        schemeManager.register(NotifierDescriptor.class);
+        schemeManager.register(Notification.class);
 
         eventPublisher.publishEvent(new SchemeInitializedEvent(this));
     }

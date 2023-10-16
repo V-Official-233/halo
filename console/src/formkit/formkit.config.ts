@@ -4,6 +4,7 @@ import { zh, en } from "@formkit/i18n";
 import type { DefaultConfigOptions } from "@formkit/vue";
 import { form } from "./inputs/form";
 import { group } from "./inputs/group";
+import { group as nativeGroup } from "@formkit/inputs";
 import { attachment } from "./inputs/attachment";
 import { code } from "./inputs/code";
 import { repeater } from "./inputs/repeater";
@@ -19,6 +20,7 @@ import { tagCheckbox } from "./inputs/tag-checkbox";
 import { roleSelect } from "./inputs/role-select";
 import { attachmentPolicySelect } from "./inputs/attachment-policy-select";
 import { attachmentGroupSelect } from "./inputs/attachment-group-select";
+import { password } from "./inputs/password";
 
 import radioAlt from "./plugins/radio-alt";
 import stopImplicitSubmission from "./plugins/stop-implicit-submission";
@@ -39,7 +41,9 @@ const config: DefaultConfigOptions = {
   ],
   inputs: {
     form,
+    password,
     group,
+    nativeGroup,
     attachment,
     code,
     repeater,
