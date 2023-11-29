@@ -28,6 +28,8 @@ core:
         placeholder: 用戶名
       display_name:
         placeholder: 名稱
+      email:
+        placeholder: 電子郵箱
       password:
         placeholder: 密碼
       password_confirm:
@@ -79,8 +81,6 @@ core:
         button: 個人資料
       visit_homepage:
         title: 訪問首頁
-      notifications:
-        button: 我的訊息
   dashboard:
     title: 儀表板
     actions:
@@ -108,8 +108,8 @@ core:
         quicklink:
           title: 快捷訪問
           actions:
-            user_profile:
-              title: 個人資料
+            user_center:
+              title: 個人中心
             view_site:
               title: 查看站點
             new_post:
@@ -1019,13 +1019,15 @@ core:
     fields:
       external_url: 外部訪問地址
       start_time: 啟動時間
-      timezone: 時區
-      locale: 語言
+      timezone: 系統時區
+      locale: 系統語言
       version: 版本
       build_time: 構建時間
       database: 資料庫
       os: 操作系統
       log: 運行日誌
+      activated_theme: 已啟動主題
+      enabled_plugins: 已啟動插件
     fields_values:
       external_url:
         not_setup: 未設置
@@ -1095,7 +1097,7 @@ core:
     forbidden:
       message: 沒有權限訪問此頁面
     actions:
-      dashboard: 儀表盤
+      home: 返回首頁
   setup:
     title: 系統初始化
     operations:
