@@ -474,4 +474,5 @@ class PluginEndpointTest {
                 .verifyComplete();
         }
     }
+
 }

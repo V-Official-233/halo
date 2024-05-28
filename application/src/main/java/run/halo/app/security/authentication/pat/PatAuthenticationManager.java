@@ -3,27 +3,32 @@ package run.halo.app.security.authentication.pat;
 import static org.apache.commons.lang3.StringUtils.removeStart;
 import static org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder.withJwkSource;
 import static run.halo.app.security.authentication.pat.PatServerWebExchangeMatcher.PAT_TOKEN_PREFIX;
+import static run.halo.app.security.authorization.AuthorityUtils.ANONYMOUS_ROLE_NAME;
+import static run.halo.app.security.authorization.AuthorityUtils.AUTHENTICATED_ROLE_NAME;
+import static run.halo.app.security.authorization.AuthorityUtils.ROLE_PREFIX;
 
 import com.nimbusds.jwt.JWTClaimNames;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Objects;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
 import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.authentication.JwtReactiveAuthenticationManager;
-import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverter;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 import run.halo.app.extension.ExtensionUtil;
 import run.halo.app.extension.ReactiveExtensionClient;
 import run.halo.app.security.PersonalAccessToken;
-import run.halo.app.security.authentication.jwt.JwtScopesAndRolesGrantedAuthoritiesConverter;
+import run.halo.app.security.authentication.CryptoService;
+import run.halo.app.security.authorization.AuthorityUtils;
 
 public class PatAuthenticationManager implements ReactiveAuthenticationManager {
 
@@ -36,23 +41,21 @@ public class PatAuthenticationManager implements ReactiveAuthenticationManager {
 
     private final ReactiveExtensionClient client;
 
+    private final CryptoService cryptoService;
+
     private Clock clock;
 
-    public PatAuthenticationManager(ReactiveExtensionClient client, PatJwkSupplier jwkSupplier) {
+    public PatAuthenticationManager(ReactiveExtensionClient client, CryptoService cryptoService) {
         this.client = client;
-        this.delegate = getDelegate(jwkSupplier);
+        this.cryptoService = cryptoService;
+        this.delegate = getDelegate();
         this.clock = Clock.systemDefaultZone();
     }
 
-    private ReactiveAuthenticationManager getDelegate(PatJwkSupplier jwkSupplier) {
-        var jwtDecoder = withJwkSource(signedJWT -> Flux.just(jwkSupplier.getJwk()))
+    private ReactiveAuthenticationManager getDelegate() {
+        var jwtDecoder = withJwkSource(signedJWT -> Flux.just(cryptoService.getJwk()))
             .build();
-        var jwtAuthManager = new JwtReactiveAuthenticationManager(jwtDecoder);
-        var jwtAuthConverter = new ReactiveJwtAuthenticationConverter();
-        jwtAuthConverter.setJwtGrantedAuthoritiesConverter(
-            new JwtScopesAndRolesGrantedAuthoritiesConverter());
-        jwtAuthManager.setJwtAuthenticationConverter(jwtAuthConverter);
-        return jwtAuthManager;
+        return new JwtReactiveAuthenticationManager(jwtDecoder);
     }
 
     public void setClock(Clock clock) {
@@ -61,10 +64,11 @@ public class PatAuthenticationManager implements ReactiveAuthenticationManager {
 
     @Override
     public Mono<Authentication> authenticate(Authentication authentication) {
-        return delegate.authenticate(clearPrefix(authentication))
-            .transformDeferred(auth -> auth.filter(a -> a instanceof JwtAuthenticationToken)
-                .cast(JwtAuthenticationToken.class)
-                .flatMap(jwtAuthToken -> checkAvailability(jwtAuthToken).thenReturn(jwtAuthToken)));
+        return Mono.just(authentication)
+            .map(this::clearPrefix)
+            .flatMap(delegate::authenticate)
+            .cast(JwtAuthenticationToken.class)
+            .flatMap(this::checkAndRebuild);
     }
 
     private Authentication clearPrefix(Authentication authentication) {
@@ -75,18 +79,33 @@ public class PatAuthenticationManager implements ReactiveAuthenticationManager {
         return authentication;
     }
 
-    private Mono<Void> checkAvailability(JwtAuthenticationToken jwtAuthToken) {
-        var jwt = jwtAuthToken.getToken();
+    private Mono<JwtAuthenticationToken> checkAndRebuild(JwtAuthenticationToken jat) {
+        var jwt = jat.getToken();
         var patName = jwt.getClaimAsString("pat_name");
         var jwtId = jwt.getClaimAsString(JWTClaimNames.JWT_ID);
         if (patName == null || jwtId == null) {
-            // Skip if the JWT token is not a PAT.
-            return Mono.empty();
+            // Not a valid PAT
+            return Mono.error(new InvalidBearerTokenException("Missing claim pat_name or jti"));
         }
         return client.fetch(PersonalAccessToken.class, patName)
             .switchIfEmpty(
-                Mono.error(() -> new DisabledException("Personal access token has been deleted.")))
-            .flatMap(pat -> patChecks(pat, jwtId).and(updateLastUsed(patName)));
+                Mono.error(() -> new DisabledException("Personal access token has been deleted."))
+            )
+            .flatMap(pat -> patChecks(pat, jwtId).and(updateLastUsed(patName)).thenReturn(pat))
+            .map(pat -> {
+                // Make sure the authorities modifiable
+                var authorities = new ArrayList<>(jat.getAuthorities());
+                authorities.add(new SimpleGrantedAuthority(ROLE_PREFIX + ANONYMOUS_ROLE_NAME));
+                authorities.add(new SimpleGrantedAuthority(ROLE_PREFIX + AUTHENTICATED_ROLE_NAME));
+                var roles = pat.getSpec().getRoles();
+                if (roles != null) {
+                    roles.stream()
+                        .map(role -> AuthorityUtils.ROLE_PREFIX + role)
+                        .map(SimpleGrantedAuthority::new)
+                        .forEach(authorities::add);
+                }
+                return new JwtAuthenticationToken(jat.getToken(), authorities, jat.getName());
+            });
     }
 
     private Mono<Void> updateLastUsed(String patName) {

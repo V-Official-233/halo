@@ -12,7 +12,7 @@ import static org.springframework.boot.convert.ApplicationConversionService.getS
 import static org.springframework.core.io.buffer.DataBufferUtils.write;
 import static org.springframework.web.reactive.function.server.RequestPredicates.contentType;
 import static run.halo.app.extension.ListResult.generateGenericClass;
-import static run.halo.app.extension.router.QueryParamBuildUtil.buildParametersFromType;
+import static run.halo.app.extension.router.QueryParamBuildUtil.sortParameter;
 import static run.halo.app.extension.router.selector.SelectorUtil.labelAndFieldSelectorToPredicate;
 import static run.halo.app.infra.utils.FileUtils.deleteFileSilently;
 
@@ -42,8 +42,8 @@ import java.util.function.Supplier;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import org.pf4j.PluginState;
 import org.reactivestreams.Publisher;
+import org.springdoc.core.fn.builders.operation.Builder;
 import org.springdoc.webflux.core.fn.SpringdocRouteBuilder;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.core.io.FileSystemResource;
@@ -81,6 +81,7 @@ import run.halo.app.core.extension.theme.SettingUtils;
 import run.halo.app.extension.Comparators;
 import run.halo.app.extension.ConfigMap;
 import run.halo.app.extension.ReactiveExtensionClient;
+import run.halo.app.extension.router.IListRequest;
 import run.halo.app.extension.router.IListRequest.QueryListRequest;
 import run.halo.app.infra.ReactiveUrlDataBufferFetcher;
 import run.halo.app.plugin.PluginNotFoundException;
@@ -229,7 +230,7 @@ public class PluginEndpoint implements CustomEndpoint {
                     .tag(tag)
                     .description("List plugins using query criteria and sort params")
                     .response(responseBuilder().implementation(generateGenericClass(Plugin.class)));
-                buildParametersFromType(builder, ListRequest.class);
+                ListRequest.buildParameters(builder);
             })
             .GET("plugins/{name}/setting", this::fetchPluginSetting,
                 builder -> builder.operationId("fetchPluginSetting")
@@ -282,43 +283,11 @@ public class PluginEndpoint implements CustomEndpoint {
         final var name = request.pathVariable("name");
         return request.bodyToMono(RunningStateRequest.class)
             .flatMap(runningState -> {
-                final var enable = runningState.isEnable();
-                return client.get(Plugin.class, name)
-                    .flatMap(plugin -> {
-                        plugin.getSpec().setEnabled(enable);
-                        return client.update(plugin);
-                    })
-                    .flatMap(plugin -> {
-                        if (runningState.isAsync()) {
-                            return Mono.just(plugin);
-                        }
-                        return waitForPluginToMeetExpectedState(name, p -> {
-                            // when enabled = true,excepted phase = started || failed
-                            // when enabled = false,excepted phase = !started
-                            var phase = p.statusNonNull().getPhase();
-                            if (enable) {
-                                return PluginState.STARTED.equals(phase)
-                                    || PluginState.FAILED.equals(phase);
-                            }
-                            return !PluginState.STARTED.equals(phase);
-                        });
-                    });
+                var enable = runningState.isEnable();
+                var async = runningState.isAsync();
+                return pluginService.changeState(name, enable, !async);
             })
             .flatMap(plugin -> ServerResponse.ok().bodyValue(plugin));
-    }
-
-    Mono<Plugin> waitForPluginToMeetExpectedState(String name, Predicate<Plugin> predicate) {
-        return Mono.defer(() -> client.get(Plugin.class, name)
-                .map(plugin -> {
-                    if (predicate.test(plugin)) {
-                        return plugin;
-                    }
-                    throw new IllegalStateException("Plugin " + name + " is not in expected state");
-                })
-            )
-            .retryWhen(Retry.backoff(10, Duration.ofMillis(100))
-                .filter(IllegalStateException.class::isInstance)
-            );
     }
 
     @Data
@@ -656,6 +625,23 @@ public class PluginEndpoint implements CustomEndpoint {
                 .reduce(Comparator::thenComparing)
                 .orElse(null);
         }
+
+        public static void buildParameters(Builder builder) {
+            IListRequest.buildParameters(builder);
+            builder.parameter(sortParameter());
+            builder.parameter(parameterBuilder()
+                    .in(ParameterIn.QUERY)
+                    .name("keyword")
+                    .description("Keyword of plugin name or description")
+                    .implementation(String.class)
+                    .required(false))
+                .parameter(parameterBuilder()
+                    .in(ParameterIn.QUERY)
+                    .name("enabled")
+                    .description("Whether the plugin is enabled")
+                    .implementation(Boolean.class)
+                    .required(false));
+        }
     }
 
     Mono<ServerResponse> list(ServerRequest request) {
@@ -853,4 +839,5 @@ public class PluginEndpoint implements CustomEndpoint {
             this.cssBundle.set(null);
         }
     }
+
 }

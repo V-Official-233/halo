@@ -55,13 +55,11 @@ public class GlobalInfoEndpoint {
                 handleBasicSetting(info, configMap);
                 handlePostSlugGenerationStrategy(info, configMap);
             }));
-
         return info;
     }
 
     @Data
     public static class GlobalInfo {
-
         private URL externalUrl;
 
         private boolean useAbsolutePermalink;
@@ -85,6 +83,10 @@ public class GlobalInfoEndpoint {
         private String postSlugGenerationStrategy;
 
         private List<SocialAuthProvider> socialAuthProviders;
+
+        private Boolean mustVerifyEmailOnRegistration;
+
+        private String siteTitle;
     }
 
     @Data
@@ -117,12 +119,14 @@ public class GlobalInfoEndpoint {
     }
 
     private void handleUserSetting(GlobalInfo info, ConfigMap configMap) {
-        var user = SystemSetting.get(configMap, User.GROUP, User.class);
-        if (user == null) {
+        var userSetting = SystemSetting.get(configMap, User.GROUP, User.class);
+        if (userSetting == null) {
             info.setAllowRegistration(false);
+            info.setMustVerifyEmailOnRegistration(false);
         } else {
             info.setAllowRegistration(
-                user.getAllowRegistration() != null && user.getAllowRegistration());
+                userSetting.getAllowRegistration() != null && userSetting.getAllowRegistration());
+            info.setMustVerifyEmailOnRegistration(userSetting.getMustVerifyEmailOnRegistration());
         }
     }
 
@@ -137,6 +141,7 @@ public class GlobalInfoEndpoint {
         var basic = SystemSetting.get(configMap, Basic.GROUP, Basic.class);
         if (basic != null) {
             info.setFavicon(basic.getFavicon());
+            info.setSiteTitle(basic.getTitle());
         }
     }
 

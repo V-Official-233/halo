@@ -38,7 +38,6 @@ public interface PluginService {
      * @return an updated plugin reloaded from plugin path
      * @throws ServerWebInputException if plugin not found by the given name
      * @see Plugin.PluginSpec#setEnabled(Boolean)
-     * @see run.halo.app.plugin.HaloPluginManager#reloadPlugin(String)
      */
     Mono<Plugin> reload(String name);
 
@@ -63,4 +62,15 @@ public interface PluginService {
      * @return signed js bundle version by all enabled plugins version.
      */
     Mono<String> generateJsBundleVersion();
+
+    /**
+     * Enables or disables a plugin by name.
+     *
+     * @param pluginName plugin name
+     * @param requestToEnable request to enable or disable
+     * @param wait wait for plugin to be enabled or disabled
+     * @return updated plugin
+     */
+    Mono<Plugin> changeState(String pluginName, boolean requestToEnable, boolean wait);
+
 }

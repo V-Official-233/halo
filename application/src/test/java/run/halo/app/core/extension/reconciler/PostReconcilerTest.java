@@ -85,7 +85,7 @@ class PostReconcilerTest {
         Snapshot snapshotV2 = TestPost.snapshotV2();
         snapshotV1.getSpec().setContributors(Set.of("guqing"));
         snapshotV2.getSpec().setContributors(Set.of("guqing", "zhangsan"));
-        when(client.list(eq(Snapshot.class), any(), any()))
+        when(client.listAll(eq(Snapshot.class), any(), any()))
             .thenReturn(List.of(snapshotV1, snapshotV2));
 
         ArgumentCaptor<Post> captor = ArgumentCaptor.forClass(Post.class);
@@ -126,7 +126,7 @@ class PostReconcilerTest {
         Snapshot snapshotV1 = TestPost.snapshotV1();
         snapshotV1.getSpec().setContributors(Set.of("guqing"));
 
-        when(client.list(eq(Snapshot.class), any(), any()))
+        when(client.listAll(eq(Snapshot.class), any(), any()))
             .thenReturn(List.of(snapshotV1, snapshotV2));
 
         ArgumentCaptor<Post> captor = ArgumentCaptor.forClass(Post.class);
@@ -149,7 +149,7 @@ class PostReconcilerTest {
             when(client.fetch(eq(Post.class), eq(name)))
                 .thenReturn(Optional.of(post));
             when(postService.getContent(eq(post.getSpec().getReleaseSnapshot()),
-                    eq(post.getSpec().getBaseSnapshot())))
+                eq(post.getSpec().getBaseSnapshot())))
                 .thenReturn(Mono.just(ContentWrapper.builder()
                     .snapshotName(post.getSpec().getHeadSnapshot())
                     .raw("hello world")
@@ -162,7 +162,7 @@ class PostReconcilerTest {
             when(client.fetch(eq(Snapshot.class), eq(post.getSpec().getReleaseSnapshot())))
                 .thenReturn(Optional.of(snapshotV2));
 
-            when(client.list(eq(Snapshot.class), any(), any()))
+            when(client.listAll(eq(Snapshot.class), any(), any()))
                 .thenReturn(List.of());
 
             ArgumentCaptor<Post> captor = ArgumentCaptor.forClass(Post.class);
@@ -191,7 +191,7 @@ class PostReconcilerTest {
                     .rawType("markdown")
                     .build()));
 
-            when(client.list(eq(Snapshot.class), any(), any()))
+            when(client.listAll(eq(Snapshot.class), any(), any()))
                 .thenReturn(List.of());
 
             ArgumentCaptor<Post> captor = ArgumentCaptor.forClass(Post.class);
@@ -215,11 +215,7 @@ class PostReconcilerTest {
             assertArg(argReason -> {
                 var interestReason = new Subscription.InterestReason();
                 interestReason.setReasonType(NotificationReasonConst.NEW_COMMENT_ON_POST);
-                interestReason.setSubject(Subscription.ReasonSubject.builder()
-                    .apiVersion(post.getApiVersion())
-                    .kind(post.getKind())
-                    .name(post.getMetadata().getName())
-                    .build());
+                interestReason.setExpression("props.postOwner == 'null'");
                 assertThat(argReason).isEqualTo(interestReason);
             }));
     }

@@ -15,6 +15,7 @@ import org.springframework.boot.autoconfigure.web.WebProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -37,9 +38,12 @@ import org.springframework.web.reactive.result.view.ViewResolver;
 import reactor.core.publisher.Mono;
 import run.halo.app.console.ProxyFilter;
 import run.halo.app.console.WebSocketRequestPredicate;
+import run.halo.app.core.endpoint.WebSocketHandlerMapping;
 import run.halo.app.core.extension.endpoint.CustomEndpoint;
 import run.halo.app.core.extension.endpoint.CustomEndpointsBuilder;
 import run.halo.app.infra.properties.HaloProperties;
+import run.halo.app.plugin.extensionpoint.ExtensionGetter;
+import run.halo.app.webfilter.AdditionalWebFilterChainProxy;
 
 @Configuration
 public class WebFluxConfig implements WebFluxConfigurer {
@@ -95,6 +99,13 @@ public class WebFluxConfig implements WebFluxConfigurer {
         var builder = new CustomEndpointsBuilder();
         context.getBeansOfType(CustomEndpoint.class).values().forEach(builder::add);
         return builder.build();
+    }
+
+    @Bean
+    public WebSocketHandlerMapping webSocketHandlerMapping() {
+        WebSocketHandlerMapping handlerMapping = new WebSocketHandlerMapping();
+        handlerMapping.setOrder(-2);
+        return handlerMapping;
     }
 
     @Bean
@@ -199,5 +210,24 @@ public class WebFluxConfig implements WebFluxConfigurer {
     @Bean
     ProxyFilter ucProxyFilter() {
         return new ProxyFilter("/uc/**", haloProp.getUc().getProxy());
+    }
+
+    /**
+     * Create a WebFilterChainProxy for all AdditionalWebFilters.
+     *
+     * <p>The reason why the order is -101 is that the current
+     * AdditionalWebFilterChainProxy should be executed before WebFilterChainProxy
+     * and the order of WebFilterChainProxy is -100.
+     *
+     * <p>See {@code org.springframework.security.config.annotation.web.reactive
+     * .WebFluxSecurityConfiguration#WEB_FILTER_CHAIN_FILTER_ORDER} for more
+     *
+     * @param extensionGetter extension getter.
+     * @return additional web filter chain proxy.
+     */
+    @Bean
+    @Order(-101)
+    AdditionalWebFilterChainProxy additionalWebFilterChainProxy(ExtensionGetter extensionGetter) {
+        return new AdditionalWebFilterChainProxy(extensionGetter);
     }
 }

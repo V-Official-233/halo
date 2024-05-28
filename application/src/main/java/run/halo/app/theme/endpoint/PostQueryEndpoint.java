@@ -16,7 +16,6 @@ import run.halo.app.core.extension.content.Post;
 import run.halo.app.core.extension.endpoint.CustomEndpoint;
 import run.halo.app.extension.GroupVersion;
 import run.halo.app.extension.ListResult;
-import run.halo.app.extension.router.QueryParamBuildUtil;
 import run.halo.app.infra.exception.NotFoundException;
 import run.halo.app.theme.finders.PostFinder;
 import run.halo.app.theme.finders.PostPublicQueryService;
@@ -49,7 +48,7 @@ public class PostQueryEndpoint implements CustomEndpoint {
                         .response(responseBuilder()
                             .implementation(ListResult.generateGenericClass(ListedPostVo.class))
                         );
-                    QueryParamBuildUtil.buildParametersFromType(builder, PostPublicQuery.class);
+                    PostPublicQuery.buildParameters(builder);
                 }
             )
             .GET("posts/{name}", this::getPostByName,
@@ -107,8 +106,7 @@ public class PostQueryEndpoint implements CustomEndpoint {
 
     private Mono<ServerResponse> listPosts(ServerRequest request) {
         PostPublicQuery query = new PostPublicQuery(request.exchange());
-        return postPublicQueryService.list(query.getPage(), query.getSize(), query.toPredicate(),
-                query.toComparator())
+        return postPublicQueryService.list(query.toListOptions(), query.toPageRequest())
             .flatMap(result -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(result)
             );
